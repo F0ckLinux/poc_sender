@@ -172,16 +172,11 @@ def send_from_sample(url,data,to_dict=False, p='h', verify='',extend_headers={},
     if 'D' in p:
         L(res)
     if isinstance(res, bytes):
-        res = res.decode()
+        verify = verify.encode()
     if not verify.strip():
         OK(url)
-    else:
-        if verify.startswith("!"):
-            if verify[1:] not in res:
-                OK(url)
-        else:
-            if verify in res:
-                OK(url)
+    elif verify in res:
+        OK(url)
     return res
 
 if __name__ == '__main__':
