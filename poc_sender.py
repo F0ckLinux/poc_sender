@@ -143,11 +143,17 @@ def send_from_sample(url,data,to_dict=False, p='h', verify='',extend_headers={},
     if host:
         H['host'] = host
     H.update(extend_headers)
-    del H['Content-Length'.lower()]
+    #del H['Content-Length'.lower()]
     if to_dict:
         data = parse_data(data)
+    else:
+        H['content-length'] = len(data)
 
-    method,path,_  = url_header.split()
+    aaa = url_header.split()
+    method = aaa.pop(0)
+    http_version = aaa[-1] if aaa.pop(-1).lower().startswith("http/") else "http/1.1"
+    path = ' '.join(aaa) 
+    L(path)
     if not host:
         host = H['host']
         path = xx_
