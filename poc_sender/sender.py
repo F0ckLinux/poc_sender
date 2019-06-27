@@ -3,6 +3,7 @@ import sys
 import os
 import ssl
 import threading
+import argparse
 
 # This restores the same behavior as before.
 context = ssl._create_unverified_context()
@@ -30,9 +31,13 @@ def dict_p(d):
         s += str(k) + " : " + str(v).strip() + "\n"
     return s
 
+def to_str(i):
+    if isinstance(i, bytes):
+        return i.decode()
+    return str(i)
 
 def L(*ress):
-    res = " ".join([str(i) if not isinstance(i,dict) else dict_p(i) for i in ress])
+    res = " ".join([to_str(i) if not isinstance(i,dict) else dict_p(i) for i in ress])
     sys.stdout.write("\x1b[32m[+]\x1b[0m \x1b[33m{}\x1b[0m\n".format(res))
     sys.stdout.flush()
 
@@ -50,6 +55,7 @@ if PY == '3':
     import urllib.request as ur
     from urllib import request, parse
     from urllib.parse import urlsplit
+    import http
 
     def post(url, data, headers,p):
         if isinstance(data, dict):
@@ -69,6 +75,8 @@ if PY == '3':
             else:
                 if 'D' in p:
                     L(resp.read())
+        except http.client.BadStatusLine:
+            return
         except Exception as e:
             EL(e)
 
@@ -96,6 +104,7 @@ else:
                     L(resp.read())
         except Exception as e:
             EL(e)
+            raise e
 
 def parse_url(u):
     if not u.startswith("http"):
@@ -124,6 +133,7 @@ def get(url, headers,p):
             return c
     except Exception as e:
         EL(e)
+        raise e
 
 
 def send_from_sample(url,data,to_dict=False, p='h', verify='',extend_headers={},not_send=False):
@@ -164,7 +174,8 @@ def send_from_sample(url,data,to_dict=False, p='h', verify='',extend_headers={},
     if 'h' in p:
         L(H)
     if 'd' in p:
-        L(data)
+        if method == 'post':
+            L(data)
     if not_send:
         return (method,url, H, data)
     if method == 'get':
@@ -178,11 +189,12 @@ def send_from_sample(url,data,to_dict=False, p='h', verify='',extend_headers={},
     if 'D' in p:
         L(res)
     if isinstance(res, bytes):
-        res = res.decode()
+        verify = verify.encode()
+
     if not verify.strip():
         OK(url)
     else:
-        if verify.startswith("!"):
+        if verify.startswith(b"!"):
             if verify[1:] not in res:
                 OK(url)
         else:
@@ -190,38 +202,75 @@ def send_from_sample(url,data,to_dict=False, p='h', verify='',extend_headers={},
                 OK(url)
     return res
 
-if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        EL("mus\npython %s [url] [sample_templte: raw post_data/get_data] header=value"% sys.argv[0])
-        sys.exit(3)
-    host = sys.argv[1]
-    sample_v = sys.argv[2]
-    if not os.path.exists(sample_v):
+def send_from_samples(url,datas_files,to_dict=False, p='h', verify='',extend_headers={},not_send=False):
+    res = None
+    for data_file in datas_files:
+        if os.path.exists(data_file):
+            with open(data_file) as fp:
+                data = fp.read()
+            res = send_from_sample(url, data, to_dict=to_dict, p=p, verify=verify, extend_headers=extend_headers,not_send=not_send)
+    return res
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("host", help="host file or host str")
+    parser.add_argument("samples",nargs="+", help="samples flow...")
+    parser.add_argument("-V","--verify",default="!error", help="set verify content, ! = not ")
+    parser.add_argument("-s5","--socks5-proxy",default="", help="set proxy port: like -p 1080")
+    parser.add_argument("-p","--Print",default="D", help="set print content h:request head | d:request body | H : response head | D : response body")
+    return parser.parse_args()
+
+def run():
+    #if len(sys.argv) < 3:
+    #    EL("mus\npython %s [url] [sample_templte: raw post_data/get_data] header=value"% sys.argv[0])
+    #    sys.exit(3)
+    args = main()
+    host = args.host
+    sample_v = args.samples
+    verify = args.verify
+    if args.socks5_proxy:
+        set_proxy(int(args.socks5_proxy))
+    Print = args.Print
+    if not os.path.exists(sample_v[0]):
         EL("must exisgts sample file for raw POST or raw GET")
         sys.exit(2)
     if not host.startswith("http") and not os.path.exists(host) and host != 'x':
         EL("invalid url: %s "% host)
         sys.exit(2)
 
-    HH = {}
-    if len(sys.argv) ==3:
-        verify = 'currentUserId'
-    elif len(sys.argv) == 4:
-        verify = sys.argv[3]
-    elif len(sys.argv) > 4:
-        verify = sys.argv[3]
-        headers_str = ''.join(sys.argv[4:])
-        for header in headers_str.split(","):
-            if '=' not in headers_str:
-                h = header.strip()
-                v = ''
-                continue
-            h,v = header.split("=",1)
-            HH[h.strip()] = v.strip()
     if 'h' in Print:
         EL("verify: ",verify)
-    with open(sample_v) as fp:
-        content = fp.read()
+    HH = {}
+    if len(sample_v) < 2:
+        sample_v = sample_v[0]
+        with open(sample_v) as fp:
+            content = fp.read()
+            if os.path.exists(host):
+                with open(host) as fpp:
+                    targets = [i.strip() for i in fpp.read().split("\n") if i.strip()]
+                if use_thread:
+                    cs = []
+                    for host in targets:
+                        t = threading.Thread(target=send_from_sample, args=(host, content,False,Print,verify,HH))
+                        t.start()
+                        cs.append(t)
+                        if len(cs) > 12:
+                            for i in cs:
+                                i.join()
+                            cs = []
+                    if len(cs) > 0:
+                        for i in cs:
+                            i.join()
+                else:
+                    for host in targets:
+                        if not host.startswith("http"):
+                            EL("must include https://xx.x.xx [%s] "% host)
+                            continue
+                        send_from_sample(host, content,to_dict=False, p=Print,verify=verify,extend_headers=HH)
+         
+            else:
+                send_from_sample(host, content, p=Print,verify=verify,extend_headers=HH)
+    else:
         if os.path.exists(host):
             with open(host) as fpp:
                 targets = [i.strip() for i in fpp.read().split("\n") if i.strip()]
@@ -243,9 +292,10 @@ if __name__ == '__main__':
                     if not host.startswith("http"):
                         EL("must include https://xx.x.xx [%s] "% host)
                         continue
-                    send_from_sample(host, content,to_dict=False, p=Print,verify=verify,extend_headers=HH)
-
+                    send_from_samples(host, sample_v,to_dict=False, p=Print,verify=verify,extend_headers=HH)
         else:
-            send_from_sample(host, content, p=Print,verify=verify,extend_headers=HH)
+            send_from_samples(host, sample_v, p=Print,verify=verify,extend_headers=HH)
 
 
+if __name__ == '__main__':
+    run()
