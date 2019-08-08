@@ -125,14 +125,15 @@ def parse_data(data):
 
 def get(url, headers,p):
     try:
-        res = ur.urlopen(url,headers, context=context)
+        #req = ur.Request(url, headers=headers)
+        res = ur.urlopen(url, context=context)
         if 'H' in p:
             L(res.headers)
         if res.code == 200:
             c = res.read()
             return c
     except Exception as e:
-        EL(e)
+        EL(e, url, headers, context)
         raise e
 
 
@@ -179,7 +180,7 @@ def send_from_sample(url,data,to_dict=False, p='h', verify='',extend_headers={},
     if not_send:
         return (method,url, H, data)
     if method == 'get':
-        res = get(url, HH,p)
+        res = get(url, H,p)
         if not res:
             return
     else:
